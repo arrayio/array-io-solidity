@@ -1,7 +1,5 @@
 .. index:: ! contract
 
-.. _contracts:
-
 ##########
 Contracts
 ##########
@@ -22,13 +20,13 @@ Contracts can be created "from outside" via Ethereum transactions or from within
 
 IDEs, such as `Remix <https://remix.ethereum.org/>`_, make the creation process seamless using UI elements.
 
-Creating contracts programmatically on Ethereum is best done via using the JavaScript API `web3.js <https://github.com/ethereum/web3.js>`_.
-It has a function called `web3.eth.Contract <https://web3js.readthedocs.io/en/1.0/web3-eth-contract.html#new-contract>`_
+Creating contracts programatically on Ethereum is best done via using the JavaScript API `web3.js <https://github.com/ethereum/web3.js>`_.
+As of today it has a method called `web3.eth.Contract <https://web3js.readthedocs.io/en/1.0/web3-eth-contract.html#new-contract>`_
 to facilitate contract creation.
 
-When a contract is created, its constructor_  (a function declared with the ``constructor`` keyword) is executed once.
-
-A constructor is optional. Only one constructor is allowed, which means
+When a contract is created, its constructor (a function with the same
+name as the contract) is executed once.
+A constructor is optional. Only one constructor is allowed, and this means
 overloading is not supported.
 
 .. index:: constructor;arguments
@@ -42,7 +40,7 @@ This means that cyclic creation dependencies are impossible.
 
 ::
 
-    pragma solidity >=0.4.22 <0.6.0;
+    pragma solidity ^0.4.16;
 
     contract OwnedToken {
         // TokenCreator is a contract type that is defined below.
@@ -54,7 +52,7 @@ This means that cyclic creation dependencies are impossible.
 
         // This is the constructor which registers the
         // creator and the assigned name.
-        constructor(bytes32 _name) public {
+        function OwnedToken(bytes32 _name) public {
             // State variables are accessed via their name
             // and not via e.g. this.owner. This also applies
             // to functions and especially in the constructors,
@@ -72,7 +70,7 @@ This means that cyclic creation dependencies are impossible.
         function changeName(bytes32 newName) public {
             // Only the creator can alter the name --
             // the comparison is possible since contracts
-            // are explicitly convertible to addresses.
+            // are implicitly convertible to addresses.
             if (msg.sender == address(creator))
                 name = newName;
         }
@@ -80,11 +78,11 @@ This means that cyclic creation dependencies are impossible.
         function transfer(address newOwner) public {
             // Only the current owner can transfer the token.
             if (msg.sender != owner) return;
-
             // We also want to ask the creator if the transfer
             // is fine. Note that this calls a function of the
             // contract defined below. If the call fails (e.g.
-            // due to out-of-gas), the execution also fails here.
+            // due to out-of-gas), the execution here stops
+            // immediately.
             if (creator.isTokenTransferOK(owner, newOwner))
                 owner = newOwner;
         }
@@ -102,7 +100,7 @@ This means that cyclic creation dependencies are impossible.
             return new OwnedToken(name);
         }
 
-        function changeName(OwnedToken tokenAddress, bytes32 name) public {
+        function changeName(OwnedToken tokenAddress, bytes32 name)  public {
             // Again, the external type of `tokenAddress` is
             // simply `address`.
             tokenAddress.changeName(name);
@@ -110,11 +108,12 @@ This means that cyclic creation dependencies are impossible.
 
         function isTokenTransferOK(address currentOwner, address newOwner)
             public
-            pure
+            view
             returns (bool ok)
         {
             // Check some arbitrary condition.
-            return keccak256(abi.encodePacked(currentOwner, newOwner))[0] == 0x7f;
+            address tokenAddress = msg.sender;
+            return (keccak256(newOwner) & 0xff) == (bytes20(tokenAddress) & 0xff);
         }
     }
 
@@ -132,21 +131,22 @@ a "message call") and external
 ones that do), there are four types of visibilities for
 functions and state variables.
 
-Functions have to be specified as being ``external``,
-``public``, ``internal`` or ``private``.
-For state variables, ``external`` is not possible.
+Functions can be specified as being ``external``,
+``public``, ``internal`` or ``private``, where the default is
+``public``. For state variables, ``external`` is not possible
+and the default is ``internal``.
 
 ``external``:
-    External functions are part of the contract interface,
-    which means they can be called from other contracts and
+    External functions are part of the contract
+    interface, which means they can be called from other contracts and
     via transactions. An external function ``f`` cannot be called
     internally (i.e. ``f()`` does not work, but ``this.f()`` works).
     External functions are sometimes more efficient when
     they receive large arrays of data.
 
 ``public``:
-    Public functions are part of the contract interface
-    and can be either called internally or via
+    Public functions are part of the contract
+    interface and can be either called internally or via
     messages. For public state variables, an automatic getter
     function (see below) is generated.
 
@@ -162,7 +162,7 @@ For state variables, ``external`` is not possible.
 
 .. note::
     Everything that is inside a contract is visible to
-    all observers external to the blockchain. Making something ``private``
+    all external observers. Making something ``private``
     only prevents other contracts from accessing and modifying
     the information, but it will still be visible to the
     whole world outside of the blockchain.
@@ -173,7 +173,7 @@ return parameter list for functions.
 
 ::
 
-    pragma solidity >=0.4.16 <0.6.0;
+    pragma solidity ^0.4.16;
 
     contract C {
         function f(uint a) private pure returns (uint b) { return a + 1; }
@@ -187,18 +187,19 @@ In the following example, ``D``, can call ``c.getData()`` to retrieve the value 
 
 ::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    // This will not compile
+
+    pragma solidity ^0.4.0;
 
     contract C {
         uint private data;
 
-        function f(uint a) private pure returns(uint b) { return a + 1; }
+        function f(uint a) private returns(uint b) { return a + 1; }
         function setData(uint a) public { data = a; }
-        function getData() public view returns(uint) { return data; }
-        function compute(uint a, uint b) internal pure returns (uint) { return a + b; }
+        function getData() public returns(uint) { return data; }
+        function compute(uint a, uint b) internal returns (uint) { return a+b; }
     }
 
-    // This will not compile
     contract D {
         function readData() public {
             C c = new C();
@@ -226,12 +227,12 @@ The compiler automatically creates getter functions for
 all **public** state variables. For the contract given below, the compiler will
 generate a function called ``data`` that does not take any
 arguments and returns a ``uint``, the value of the state
-variable ``data``. State variables can be initialized
-when they are declared.
+variable ``data``. The initialization of state variables can
+be done at declaration.
 
 ::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity ^0.4.0;
 
     contract C {
         uint public data = 42;
@@ -239,64 +240,33 @@ when they are declared.
 
     contract Caller {
         C c = new C();
-        function f() public view returns (uint) {
-            return c.data();
+        function f() public {
+            uint local = c.data();
         }
     }
 
 The getter functions have external visibility. If the
 symbol is accessed internally (i.e. without ``this.``),
-it evaluates to a state variable.  If it is accessed externally
-(i.e. with ``this.``), it evaluates to a function.
+it is evaluated as a state variable.  If it is accessed externally
+(i.e. with ``this.``), it is evaluated as a function.
 
 ::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity ^0.4.0;
 
     contract C {
         uint public data;
-        function x() public returns (uint) {
+        function x() public {
             data = 3; // internal access
-            return this.data(); // external access
+            uint val = this.data(); // external access
         }
     }
 
-If you have a ``public`` state variable of array type, then you can only retrieve
-single elements of the array via the generated getter function. This mechanism
-exists to avoid high gas costs when returning an entire array. You can use
-arguments to specify which individual element to return, for example
-``data(0)``. If you want to return an entire array in one call, then you need
-to write a function, for example:
+The next example is a bit more complex:
 
 ::
 
-  pragma solidity >=0.4.0 <0.6.0;
-
-  contract arrayExample {
-    // public state variable
-    uint[] public myArray;
-
-    // Getter function generated by the compiler
-    /*
-    function myArray(uint i) returns (uint) {
-        return myArray[i];
-    }
-    */
-
-    // function that returns entire array
-    function getArray() returns (uint[] memory) {
-        return myArray;
-    }
-  }
-
-Now you can use ``getArray()`` to retrieve the entire array, instead of
-``myArray(i)``, which returns a single element per call.
-
-The next example is more complex:
-
-::
-
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity ^0.4.0;
 
     contract Complex {
         struct Data {
@@ -307,15 +277,15 @@ The next example is more complex:
         mapping (uint => mapping(bool => Data[])) public data;
     }
 
-It generates a function of the following form. The mapping in the struct is omitted
-because there is no good way to provide the key for the mapping:
-
-::
+It will generate a function of the following form::
 
     function data(uint arg1, bool arg2, uint arg3) public returns (uint a, bytes3 b) {
         a = data[arg1][arg2][arg3].a;
         b = data[arg1][arg2][arg3].b;
     }
+
+Note that the mapping in the struct is omitted because there
+is no good way to provide the key for the mapping.
 
 .. index:: ! function;modifier
 
@@ -331,11 +301,11 @@ inheritable properties of contracts and may be overridden by derived contracts.
 
 ::
 
-    pragma solidity >0.4.99 <0.6.0;
+    pragma solidity ^0.4.11;
 
     contract owned {
-        constructor() public { owner = msg.sender; }
-        address payable owner;
+        function owned() public { owner = msg.sender; }
+        address owner;
 
         // This contract only defines a modifier but does not use
         // it: it will be used in derived contracts.
@@ -345,10 +315,7 @@ inheritable properties of contracts and may be overridden by derived contracts.
         // function is executed and otherwise, an exception is
         // thrown.
         modifier onlyOwner {
-            require(
-                msg.sender == owner,
-                "Only owner can call this function."
-            );
+            require(msg.sender == owner);
             _;
         }
     }
@@ -376,7 +343,7 @@ inheritable properties of contracts and may be overridden by derived contracts.
         mapping (address => bool) registeredAddresses;
         uint price;
 
-        constructor(uint initialPrice) public { price = initialPrice; }
+        function Register(uint initialPrice) public { price = initialPrice; }
 
         // It is important to also provide the
         // `payable` keyword here, otherwise the function will
@@ -393,10 +360,7 @@ inheritable properties of contracts and may be overridden by derived contracts.
     contract Mutex {
         bool locked;
         modifier noReentrancy() {
-            require(
-                !locked,
-                "Reentrant call."
-            );
+            require(!locked);
             locked = true;
             _;
             locked = false;
@@ -407,8 +371,7 @@ inheritable properties of contracts and may be overridden by derived contracts.
         /// The `return 7` statement assigns 7 to the return value but still
         /// executes the statement `locked = false` in the modifier.
         function f() public noReentrancy returns (uint) {
-            (bool success,) = msg.sender.call("");
-            require(success);
+            require(msg.sender.call());
             return 7;
         }
     }
@@ -437,9 +400,9 @@ Constant State Variables
 
 State variables can be declared as ``constant``. In this case, they have to be
 assigned from an expression which is a constant at compile time. Any expression
-that accesses storage, blockchain data (e.g. ``now``, ``address(this).balance`` or
+that accesses storage, blockchain data (e.g. ``now``, ``this.balance`` or
 ``block.number``) or
-execution data (``msg.value`` or ``gasleft()``) or makes calls to external contracts is disallowed. Expressions
+execution data (``msg.value`` or ``gasleft()``) or make calls to external contracts are disallowed. Expressions
 that might have a side-effect on memory allocation are allowed, but those that
 might have a side-effect on other memory objects are not. The built-in functions
 ``keccak256``, ``sha256``, ``ripemd160``, ``ecrecover``, ``addmod`` and ``mulmod``
@@ -457,7 +420,7 @@ value types and strings.
 
 ::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity ^0.4.0;
 
     contract C {
         uint constant x = 32**22 + 8;
@@ -482,11 +445,6 @@ View Functions
 
 Functions can be declared ``view`` in which case they promise not to modify the state.
 
-.. note::
-  If the compiler's EVM target is Byzantium or newer (default) the opcode
-  ``STATICCALL`` is used for ``view`` functions which enforces the state
-  to stay unmodified as part of the EVM execution.
-
 The following statements are considered modifying the state:
 
 #. Writing to state variables.
@@ -500,7 +458,7 @@ The following statements are considered modifying the state:
 
 ::
 
-    pragma solidity >0.4.99 <0.6.0;
+    pragma solidity ^0.4.16;
 
     contract C {
         function f(uint a, uint b) public view returns (uint) {
@@ -509,18 +467,20 @@ The following statements are considered modifying the state:
     }
 
 .. note::
-  ``constant`` on functions used to be an alias to ``view``, but this was dropped in version 0.5.0.
+  ``constant`` on functions is an alias to ``view``, but this is deprecated and is planned to be dropped in version 0.5.0.
 
 .. note::
-  Getter methods are automatically marked ``view``.
+  Getter methods are marked ``view``.
 
 .. note::
-  Prior to version 0.5.0, the compiler did not use the ``STATICCALL`` opcode
-  for ``view`` functions.
-  This enabled state modifications in ``view`` functions through the use of
-  invalid explicit type conversions.
-  By using  ``STATICCALL`` for ``view`` functions, modifications to the
-  state are prevented on the level of the EVM.
+  If invalid explicit type conversions are used, state modifications are possible
+  even though a ``view`` function was called.
+  You can switch the compiler to use ``STATICCALL`` when calling such functions and thus
+  prevent modifications to the state on the level of the EVM by adding
+  ``pragma experimental "v0.5.0";``
+
+.. warning::
+  The compiler does not enforce yet that a ``view`` method is not modifying state. It raises a warning though.
 
 .. index:: ! pure function, function;pure
 
@@ -531,21 +491,17 @@ Pure Functions
 
 Functions can be declared ``pure`` in which case they promise not to read from or modify the state.
 
-.. note::
-  If the compiler's EVM target is Byzantium or newer (default) the opcode ``STATICCALL`` is used,
-  which does not guarantee that the state is not read, but at least that it is not modified.
-
 In addition to the list of state modifying statements explained above, the following are considered reading from the state:
 
 #. Reading from state variables.
-#. Accessing ``address(this).balance`` or ``<address>.balance``.
+#. Accessing ``this.balance`` or ``<address>.balance``.
 #. Accessing any of the members of ``block``, ``tx``, ``msg`` (with the exception of ``msg.sig`` and ``msg.data``).
 #. Calling any function not marked ``pure``.
 #. Using inline assembly that contains certain opcodes.
 
 ::
 
-    pragma solidity >0.4.99 <0.6.0;
+    pragma solidity ^0.4.16;
 
     contract C {
         function f(uint a, uint b) public pure returns (uint) {
@@ -554,12 +510,11 @@ In addition to the list of state modifying statements explained above, the follo
     }
 
 .. note::
-  Prior to version 0.5.0, the compiler did not use the ``STATICCALL`` opcode
-  for ``pure`` functions.
-  This enabled state modifications in ``pure`` functions through the use of
-  invalid explicit type conversions.
-  By using  ``STATICCALL`` for ``pure`` functions, modifications to the
-  state are prevented on the level of the EVM.
+  If invalid explicit type conversions are used, state modifications are possible
+  even though a ``pure`` function was called.
+  You can switch the compiler to use ``STATICCALL`` when calling such functions and thus
+  prevent modifications to the state on the level of the EVM by adding
+  ``pragma experimental "v0.5.0";``
 
 .. warning::
   It is not possible to prevent functions from reading the state at the level
@@ -567,14 +522,7 @@ In addition to the list of state modifying statements explained above, the follo
   (i.e. only ``view`` can be enforced at the EVM level, ``pure`` can not).
 
 .. warning::
-  Before version 0.4.17 the compiler did not enforce that ``pure`` is not reading the state.
-  It is a compile-time type check, which can be circumvented doing invalid explicit conversions
-  between contract types, because the compiler can verify that the type of the contract does
-  not do state-changing operations, but it cannot check that the contract that will be called
-  at runtime is actually of that type.
-
-.. note::
-  Before version 0.5.0 the compiler did not enforce that ``pure`` is not reading the state.
+  Before version 0.4.17 the compiler didn't enforce that ``pure`` is not reading the state.
 
 .. index:: ! fallback function, function;fallback
 
@@ -584,7 +532,7 @@ Fallback Function
 =================
 
 A contract can have exactly one unnamed function. This function cannot have
-arguments, cannot return anything and has to have ``external`` visibility.
+arguments and cannot return anything.
 It is executed on a call to the contract if none of the other
 functions match the given function identifier (or if no data was supplied at
 all).
@@ -594,10 +542,7 @@ Ether (without data). Additionally, in order to receive Ether, the fallback func
 must be marked ``payable``. If no such function exists, the contract cannot receive
 Ether through regular transactions.
 
-In the worst case, the fallback function can only rely on 2300 gas being
-available (for example when `send` or `transfer` is used), leaving little
-room to perform other operations except basic logging. The following operations
-will consume more gas than the 2300 gas stipend:
+In the worst case, the fallback function can only rely on 2300 gas being available (for example when send or transfer is used), leaving not much room to perform other operations except basic logging. The following operations will consume more gas than the 2300 gas stipend:
 
 - Writing to storage
 - Creating a contract
@@ -611,17 +556,11 @@ Like any function, the fallback function can execute complex operations as long 
     any payload supplied with the call.
 
 .. warning::
-    The fallback function is also executed if the caller meant to call
-    a function that is not available. If you want to implement the fallback
-    function only to receive ether, you should add a check
-    like ``require(msg.data.length == 0)`` to prevent invalid calls.
-
-.. warning::
     Contracts that receive Ether directly (without a function call, i.e. using ``send`` or ``transfer``)
     but do not define a fallback function
     throw an exception, sending back the Ether (this was different
     before Solidity v0.4.0). So if you want your contract to receive Ether,
-    you have to implement a payable fallback function.
+    you have to implement a fallback function.
 
 .. warning::
     A contract without a payable fallback function can receive Ether as a recipient of a `coinbase transaction` (aka `miner block reward`)
@@ -629,11 +568,11 @@ Like any function, the fallback function can execute complex operations as long 
 
     A contract cannot react to such Ether transfers and thus also cannot reject them. This is a design choice of the EVM and Solidity cannot work around it.
 
-    It also means that ``address(this).balance`` can be higher than the sum of some manual accounting implemented in a contract (i.e. having a counter updated in the fallback function).
+    It also means that ``this.balance`` can be higher than the sum of some manual accounting implemented in a contract (i.e. having a counter updated in the fallback function).
 
 ::
 
-    pragma solidity >0.4.99 <0.6.0;
+    pragma solidity ^0.4.0;
 
     contract Test {
         // This function is called for all messages sent to
@@ -641,7 +580,7 @@ Like any function, the fallback function can execute complex operations as long 
         // Sending Ether to this contract will cause an exception,
         // because the fallback function does not have the `payable`
         // modifier.
-        function() external { x = 1; }
+        function() public { x = 1; }
         uint x;
     }
 
@@ -649,23 +588,19 @@ Like any function, the fallback function can execute complex operations as long 
     // This contract keeps all Ether sent to it with no way
     // to get it back.
     contract Sink {
-        function() external payable { }
+        function() public payable { }
     }
 
     contract Caller {
-        function callTest(Test test) public returns (bool) {
-            (bool success,) = address(test).call(abi.encodeWithSignature("nonExistingFunction()"));
-            require(success);
+        function callTest(Test test) public {
+            test.call(0xabcdef01); // hash does not exist
             // results in test.x becoming == 1.
 
-            // address(test) will not allow to call ``send`` directly, since ``test`` has no payable
-            // fallback function. It has to be converted to the ``address payable`` type via an
-            // intermediate conversion to ``uint160`` to even allow calling ``send`` on it.
-            address payable testPayable = address(uint160(address(test)));
-
-            // If someone sends ether to that contract,
-            // the transfer will fail, i.e. this returns false here.
-            return testPayable.send(2 ether);
+            // The following will not compile, but even
+            // if someone sends ether to that contract,
+            // the transaction will fail and reject the
+            // Ether.
+            //test.send(2 ether);
         }
     }
 
@@ -676,24 +611,21 @@ Like any function, the fallback function can execute complex operations as long 
 Function Overloading
 ====================
 
-A contract can have multiple functions of the same name but with different parameter
-types.
-This process is called "overloading" and also applies to inherited functions.
-The following example shows overloading of the function
-``f`` in the scope of contract ``A``.
+A Contract can have multiple functions of the same name but with different arguments.
+This also applies to inherited functions. The following example shows overloading of the
+``f`` function in the scope of contract ``A``.
 
 ::
 
-    pragma solidity >=0.4.16 <0.6.0;
+    pragma solidity ^0.4.16;
 
     contract A {
         function f(uint _in) public pure returns (uint out) {
-            out = _in;
+            out = 1;
         }
 
-        function f(uint _in, bool _really) public pure returns (uint out) {
-            if (_really)
-                out = _in;
+        function f(uint _in, bytes32 _key) public pure returns (uint out) {
+            out = 2;
         }
     }
 
@@ -702,9 +634,9 @@ externally visible functions differ by their Solidity types but not by their ext
 
 ::
 
-    pragma solidity >=0.4.16 <0.6.0;
-
     // This will not compile
+    pragma solidity ^0.4.16;
+
     contract A {
         function f(B _in) public pure returns (B out) {
             out = _in;
@@ -735,7 +667,7 @@ candidate, resolution fails.
 
 ::
 
-    pragma solidity >=0.4.16 <0.6.0;
+    pragma solidity ^0.4.16;
 
     contract A {
         function f(uint8 _in) public pure returns (uint8 out) {
@@ -747,7 +679,7 @@ candidate, resolution fails.
         }
     }
 
-Calling ``f(50)`` would create a type error since ``50`` can be implicitly converted both to ``uint8``
+Calling ``f(50)`` would create a type error since ``250`` can be implicitly converted both to ``uint8``
 and ``uint256`` types. On another hand ``f(256)`` would resolve to ``f(uint256)`` overload as ``256`` cannot be implicitly
 converted to ``uint8``.
 
@@ -773,29 +705,33 @@ Frontier and Homestead, but this might change with Serenity). Log and
 event data is not accessible from within contracts (not even from
 the contract that created them).
 
-"Simple payment verification" (SPV) proofs for logs are possible, so if an external entity supplies
+SPV proofs for logs are possible, so if an external entity supplies
 a contract with such a proof, it can check that the log actually
-exists inside the blockchain.  Be aware that block headers have to be supplied because
+exists inside the blockchain.  But be aware that block headers have to be supplied because
 the contract can only see the last 256 block hashes.
 
 Up to three parameters can
 receive the attribute ``indexed`` which will cause the respective arguments
-to be stored in a special data structure as so-called "topics", which allows them to be searched for,
-for example when filtering a sequence of blocks for certain events. Events can always
-be filtered by the address of the contract that emitted the event. Also,
-the hash of the signature of the event is one of the topics except if you
+to be searched for: It is possible to filter for specific values of
+indexed arguments in the user interface.
+
+If arrays (including ``string`` and ``bytes``) are used as indexed arguments, the
+Keccak-256 hash of it is stored as topic instead.
+
+The hash of the signature of the event is one of the topics except if you
 declared the event with ``anonymous`` specifier. This means that it is
 not possible to filter for specific anonymous events by name.
 
-If arrays (including ``string`` and ``bytes``) are used as indexed arguments, the
-Keccak-256 hash of it is stored as topic instead. This is because a topic
-can only hold a single word (32 bytes).
+All non-indexed arguments will be stored in the data part of the log.
 
-All non-indexed arguments will be :ref:`ABI-encoded <ABI>` into the data part of the log.
+.. note::
+    Indexed arguments will not be stored themselves.  You can only
+    search for the values, but it is impossible to retrieve the
+    values themselves.
 
 ::
 
-    pragma solidity >=0.4.21 <0.6.0;
+    pragma solidity ^0.4.0;
 
     contract ClientReceipt {
         event Deposit(
@@ -827,7 +763,7 @@ The use in the JavaScript API would be as follows:
     // watch for changes
     event.watch(function(error, result){
         // result will contain various information
-        // including the arguments given to the `Deposit`
+        // including the argumets given to the `Deposit`
         // call.
         if (!error)
             console.log(result);
@@ -852,22 +788,22 @@ as topics. The event call above can be performed in the same way as
 
 ::
 
-    pragma solidity >=0.4.10 <0.6.0;
+    pragma solidity ^0.4.10;
 
     contract C {
         function f() public payable {
-            uint256 _id = 0x420042;
+            bytes32 _id = 0x420042;
             log3(
                 bytes32(msg.value),
                 bytes32(0x50cb9fe53daa9737b786ab3646f04d0150dc50ef4e75f59509d83667ad5adb20),
-                bytes32(uint256(msg.sender)),
-                bytes32(_id)
+                bytes32(msg.sender),
+                _id
             );
         }
     }
 
 where the long hexadecimal number is equal to
-``keccak256("Deposit(address,bytes32,uint256)")``, the signature of the event.
+``keccak256("Deposit(address,hash256,uint256)")``, the signature of the event.
 
 Additional Resources for Understanding Events
 ==============================================
@@ -887,24 +823,23 @@ Solidity supports multiple inheritance by copying code including polymorphism.
 All function calls are virtual, which means that the most derived function
 is called, except when the contract name is explicitly given.
 
-When a contract inherits from other contracts, only a single
+When a contract inherits from multiple contracts, only a single
 contract is created on the blockchain, and the code from all the base contracts
 is copied into the created contract.
 
 The general inheritance system is very similar to
 `Python's <https://docs.python.org/3/tutorial/classes.html#inheritance>`_,
-especially concerning multiple inheritance, but there are also
-some :ref:`differences <multi-inheritance>`.
+especially concerning multiple inheritance.
 
 Details are given in the following example.
 
 ::
 
-    pragma solidity >0.4.99 <0.6.0;
+    pragma solidity ^0.4.16;
 
     contract owned {
-        constructor() public { owner = msg.sender; }
-        address payable owner;
+        function owned() { owner = msg.sender; }
+        address owner;
     }
 
     // Use `is` to derive from another contract. Derived
@@ -912,7 +847,7 @@ Details are given in the following example.
     // internal functions and state variables. These cannot be
     // accessed externally via `this`, though.
     contract mortal is owned {
-        function kill() public {
+        function kill() {
             if (msg.sender == owner) selfdestruct(owner);
         }
     }
@@ -934,7 +869,7 @@ Details are given in the following example.
     // also a base class of `mortal`, yet there is only a single
     // instance of `owned` (as for virtual inheritance in C++).
     contract named is owned, mortal {
-        constructor(bytes32 name) public {
+        function named(bytes32 name) {
             Config config = Config(0xD5f9D8D94886E70b06E474c3fB14Fd43E2f23970);
             NameReg(config.lookup(1)).register(name);
         }
@@ -972,11 +907,11 @@ Note that above, we call ``mortal.kill()`` to "forward" the
 destruction request. The way this is done is problematic, as
 seen in the following example::
 
-    pragma solidity >=0.4.22 <0.6.0;
+    pragma solidity ^0.4.0;
 
     contract owned {
-        constructor() public { owner = msg.sender; }
-        address payable owner;
+        function owned() public { owner = msg.sender; }
+        address owner;
     }
 
     contract mortal is owned {
@@ -1001,11 +936,11 @@ derived override, but this function will bypass
 ``Base1.kill``, basically because it does not even know about
 ``Base1``.  The way around this is to use ``super``::
 
-    pragma solidity >=0.4.22 <0.6.0;
+    pragma solidity ^0.4.0;
 
     contract owned {
-        constructor() public { owner = msg.sender; }
-        address payable owner;
+        function owned() public { owner = msg.sender; }
+        address owner;
     }
 
     contract mortal is owned {
@@ -1039,121 +974,82 @@ virtual method lookup.
 
 .. index:: ! constructor
 
-.. _constructor:
-
 Constructors
 ============
-
-A constructor is an optional function declared with the ``constructor`` keyword
-which is executed upon contract creation, and where you can run contract
-initialisation code.
-
-Before the constructor code is executed, state variables are initialised to
-their specified value if you initialise them inline, or zero if you do not.
-
-After the constructor has run, the final code of the contract is returned. The deployment of
-the code costs additional gas linear to the length of the code.
-
-Constructor functions can be either ``public`` or ``internal``. If there is no
-constructor, the contract will assume the default constructor, which is
-equivalent to ``constructor() public {}``. For example:
+A constructor is an optional function with the same name as the contract which is executed upon contract creation. 
+Constructor functions can be either ``public`` or ``internal``.
 
 ::
 
-    pragma solidity >0.4.99 <0.6.0;
+    pragma solidity ^0.4.11;
 
     contract A {
         uint public a;
 
-        constructor(uint _a) internal {
+        function A(uint _a) internal {
             a = _a;
         }
     }
 
     contract B is A(1) {
-        constructor() public {}
+        function B() public {}
     }
 
 A constructor set as ``internal`` causes the contract to be marked as :ref:`abstract <abstract-contract>`.
-
-.. warning ::
-    Prior to version 0.4.22, constructors were defined as functions with the same name as the contract.
-    This syntax was deprecated and is not allowed anymore in version 0.5.0.
-
 
 .. index:: ! base;constructor
 
 Arguments for Base Constructors
 ===============================
 
-The constructors of all the base contracts will be called following the
-linearization rules explained below. If the base constructors have arguments,
-derived contracts need to specify all of them. This can be done in two ways::
+Derived contracts need to provide all arguments needed for
+the base constructors. This can be done in two ways::
 
-    pragma solidity >=0.4.22 <0.6.0;
+    pragma solidity ^0.4.0;
 
     contract Base {
         uint x;
-        constructor(uint _x) public { x = _x; }
+        function Base(uint _x) public { x = _x; }
     }
 
-    // Either directly specify in the inheritance list...
-    contract Derived1 is Base(7) {
-        constructor() public {}
-    }
-
-    // or through a "modifier" of the derived constructor.
-    contract Derived2 is Base {
-        constructor(uint _y) Base(_y * _y) public {}
+    contract Derived is Base(7) {
+        function Derived(uint _y) Base(_y * _y) public {
+        }
     }
 
 One way is directly in the inheritance list (``is Base(7)``).  The other is in
-the way a modifier is invoked as part of
+the way a modifier would be invoked as part of the header of
 the derived constructor (``Base(_y * _y)``). The first way to
 do it is more convenient if the constructor argument is a
 constant and defines the behaviour of the contract or
 describes it. The second way has to be used if the
 constructor arguments of the base depend on those of the
-derived contract. Arguments have to be given either in the
-inheritance list or in modifier-style in the derived constructor.
-Specifying arguments in both places is an error.
-
-If a derived contract does not specify the arguments to all of its base
-contracts' constructors, it will be abstract.
+derived contract. If, as in this silly example, both places
+are used, the modifier-style argument takes precedence.
 
 .. index:: ! inheritance;multiple, ! linearization, ! C3 linearization
-
-.. _multi-inheritance:
 
 Multiple Inheritance and Linearization
 ======================================
 
 Languages that allow multiple inheritance have to deal with
 several problems.  One is the `Diamond Problem <https://en.wikipedia.org/wiki/Multiple_inheritance#The_diamond_problem>`_.
-Solidity is similar to Python in that it uses "`C3 Linearization <https://en.wikipedia.org/wiki/C3_linearization>`_"
-to force a specific order in the directed acyclic graph (DAG) of base classes. This
+Solidity follows the path of Python and uses "`C3 Linearization <https://en.wikipedia.org/wiki/C3_linearization>`_"
+to force a specific order in the DAG of base classes. This
 results in the desirable property of monotonicity but
 disallows some inheritance graphs. Especially, the order in
 which the base classes are given in the ``is`` directive is
-important: You have to list the direct base contracts
-in the order from "most base-like" to "most derived".
-Note that this order is the reverse of the one used in Python.
-
-Another simplifying way to explain this is that when a function is called that
-is defined multiple times in different contracts, the given bases
-are searched from right to left (left to right in Python) in a depth-first manner,
-stopping at the first match. If a base contract has already been searched, it is skipped.
-
-In the following code, Solidity will give the
+important. In the following code, Solidity will give the
 error "Linearization of inheritance graph impossible".
 
 ::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    // This will not compile
+
+    pragma solidity ^0.4.0;
 
     contract X {}
     contract A is X {}
-    // This will not compile
     contract C is A, X {}
 
 The reason for this is that ``C`` requests ``X`` to override ``A``
@@ -1161,7 +1057,8 @@ The reason for this is that ``C`` requests ``X`` to override ``A``
 requests to override ``X``, which is a contradiction that
 cannot be resolved.
 
-
+A simple rule to remember is to specify the base classes in
+the order from "most base-like" to "most derived".
 
 Inheriting Different Kinds of Members of the Same Name
 ======================================================
@@ -1180,7 +1077,7 @@ Abstract Contracts
 
 Contracts are marked as abstract when at least one of their functions lacks an implementation as in the following example (note that the function declaration header is terminated by ``;``)::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity ^0.4.0;
 
     contract Feline {
         function utterance() public returns (bytes32);
@@ -1188,7 +1085,7 @@ Contracts are marked as abstract when at least one of their functions lacks an i
 
 Such contracts cannot be compiled (even if they contain implemented functions alongside non-implemented functions), but they can be used as base contracts::
 
-    pragma solidity >=0.4.0 <0.6.0;
+    pragma solidity ^0.4.0;
 
     contract Feline {
         function utterance() public returns (bytes32);
@@ -1210,14 +1107,10 @@ Example of a Function Type (a variable declaration, where the variable is of typ
 
     function(address) external returns (address) foo;
 
-Abstract contracts decouple the definition of a contract from its implementation providing better extensibility and self-documentation and
+Abstract contracts decouple the definition of a contract from its implementation providing better extensibility and self-documentation and 
 facilitating patterns like the `Template method <https://en.wikipedia.org/wiki/Template_method_pattern>`_ and removing code duplication.
-Abstract contracts are useful in the same way that defining methods in an interface is useful. It is a way for the designer of the abstract contract to say "any child of mine must implement this method".
-
 
 .. index:: ! contract;interface, ! interface contract
-
-.. _interfaces:
 
 **********
 Interfaces
@@ -1225,40 +1118,36 @@ Interfaces
 
 Interfaces are similar to abstract contracts, but they cannot have any functions implemented. There are further restrictions:
 
-- They cannot inherit other contracts or interfaces.
-- All declared functions must be external.
-- They cannot declare a constructor.
-- They cannot declare state variables.
+#. Cannot inherit other contracts or interfaces.
+#. Cannot define constructor.
+#. Cannot define variables.
+#. Cannot define structs.
+#. Cannot define enums.
 
 Some of these restrictions might be lifted in the future.
 
 Interfaces are basically limited to what the Contract ABI can represent, and the conversion between the ABI and
-an interface should be possible without any information loss.
+an Interface should be possible without any information loss.
 
 Interfaces are denoted by their own keyword:
 
 ::
 
-    pragma solidity >=0.4.11 <0.6.0;
+    pragma solidity ^0.4.11;
 
     interface Token {
-        enum TokenType { Fungible, NonFungible }
-        struct Coin { string obverse; string reverse; }
-        function transfer(address recipient, uint amount) external;
+        function transfer(address recipient, uint amount) public;
     }
 
 Contracts can inherit interfaces as they would inherit other contracts.
-
-Types defined inside interfaces and other contract-like structures
-can be accessed from other contracts: ``Token.TokenType`` or ``Token.Coin``.
 
 .. index:: ! library, callcode, delegatecall
 
 .. _libraries:
 
-*********
+************
 Libraries
-*********
+************
 
 Libraries are similar to contracts, but their purpose is that they are deployed
 only once at a specific address and their code is reused using the ``DELEGATECALL``
@@ -1272,14 +1161,7 @@ would have no way to name them, otherwise). Library functions can only be
 called directly (i.e. without the use of ``DELEGATECALL``) if they do not modify
 the state (i.e. if they are ``view`` or ``pure`` functions),
 because libraries are assumed to be stateless. In particular, it is
-not possible to destroy a library.
-
-.. note::
-    Until version 0.4.20, it was possible to destroy libraries by
-    circumventing Solidity's type system. Starting from that version,
-    libraries contain a :ref:`mechanism<call-protection>` that
-    disallows state-modifying functions
-    to be called directly (i.e. without ``DELEGATECALL``).
+not possible to destroy a library unless Solidity's type system is circumvented.
 
 Libraries can be seen as implicit base contracts of the contracts that use them.
 They will not be explicitly visible in the inheritance hierarchy, but calls
@@ -1288,20 +1170,20 @@ contracts (``L.f()`` if ``L`` is the name of the library). Furthermore,
 ``internal`` functions of libraries are visible in all contracts, just as
 if the library were a base contract. Of course, calls to internal functions
 use the internal calling convention, which means that all internal types
-can be passed and types :ref:`stored in memory <data-location>` will be passed by reference and not copied.
+can be passed and memory types will be passed by reference and not copied.
 To realize this in the EVM, code of internal library functions
 and all functions called from therein will at compile time be pulled into the calling
 contract, and a regular ``JUMP`` call will be used instead of a ``DELEGATECALL``.
 
 .. index:: using for, set
 
-The following example illustrates how to use libraries (but manual method
+The following example illustrates how to use libraries (but
 be sure to check out :ref:`using for <using-for>` for a
 more advanced example to implement a set).
 
 ::
 
-    pragma solidity >=0.4.22 <0.6.0;
+    pragma solidity ^0.4.16;
 
     library Set {
       // We define a new struct datatype that will be used to
@@ -1363,31 +1245,31 @@ parameters and in any position.
 
 The calls to ``Set.contains``, ``Set.insert`` and ``Set.remove``
 are all compiled as calls (``DELEGATECALL``) to an external
-contract/library. If you use libraries, be aware that an
+contract/library. If you use libraries, take care that an
 actual external function call is performed.
 ``msg.sender``, ``msg.value`` and ``this`` will retain their values
 in this call, though (prior to Homestead, because of the use of ``CALLCODE``, ``msg.sender`` and
 ``msg.value`` changed, though).
 
-The following example shows how to use :ref:`types stored in memory <data-location>` and
+The following example shows how to use memory types and
 internal functions in libraries in order to implement
 custom types without the overhead of external function calls:
 
 ::
 
-    pragma solidity >=0.4.16 <0.6.0;
+    pragma solidity ^0.4.16;
 
     library BigInt {
         struct bigint {
             uint[] limbs;
         }
 
-        function fromUint(uint x) internal pure returns (bigint memory r) {
+        function fromUint(uint x) internal pure returns (bigint r) {
             r.limbs = new uint[](1);
             r.limbs[0] = x;
         }
 
-        function add(bigint memory _a, bigint memory _b) internal pure returns (bigint memory r) {
+        function add(bigint _a, bigint _b) internal pure returns (bigint r) {
             r.limbs = new uint[](max(_a.limbs.length, _b.limbs.length));
             uint carry = 0;
             for (uint i = 0; i < r.limbs.length; ++i) {
@@ -1402,7 +1284,6 @@ custom types without the overhead of external function calls:
             if (carry > 0) {
                 // too bad, we have to add a limb
                 uint[] memory newLimbs = new uint[](r.limbs.length + 1);
-                uint i;
                 for (i = 0; i < r.limbs.length; ++i)
                     newLimbs[i] = r.limbs[i];
                 newLimbs[i] = carry;
@@ -1410,7 +1291,7 @@ custom types without the overhead of external function calls:
             }
         }
 
-        function limb(bigint memory _a, uint _limb) internal pure returns (uint) {
+        function limb(bigint _a, uint _limb) internal pure returns (uint) {
             return _limb < _a.limbs.length ? _a.limbs[_limb] : 0;
         }
 
@@ -1423,10 +1304,9 @@ custom types without the overhead of external function calls:
         using BigInt for BigInt.bigint;
 
         function f() public pure {
-            BigInt.bigint memory x = BigInt.fromUint(7);
-            BigInt.bigint memory y = BigInt.fromUint(uint(-1));
-            BigInt.bigint memory z = x.add(y);
-            assert(z.limb(1) > 0);
+            var x = BigInt.fromUint(7);
+            var y = BigInt.fromUint(uint(-1));
+            var z = x.add(y);
         }
     }
 
@@ -1441,14 +1321,6 @@ will contain placeholders of the form ``__Set______`` (where
 manually by replacing all those 40 symbols by the hex
 encoding of the address of the library contract.
 
-.. note::
-    Manually linking libraries on the generated bytecode is discouraged, because
-    it is restricted to 36 characters.
-    You should ask the compiler to link the libraries at the time
-    a contract is compiled by either using
-    the ``--libraries`` option of ``solc`` or the ``libraries`` key if you use
-    the standard-JSON interface to the compiler.
-
 Restrictions for libraries in comparison to contracts:
 
 - No state variables
@@ -1456,8 +1328,6 @@ Restrictions for libraries in comparison to contracts:
 - Cannot receive Ether
 
 (These might be lifted at a later point.)
-
-.. _call-protection:
 
 Call Protection For Libraries
 =============================
@@ -1494,29 +1364,28 @@ Using For
 The directive ``using A for B;`` can be used to attach library
 functions (from the library ``A``) to any type (``B``).
 These functions will receive the object they are called on
-as their first parameter (like the ``self`` variable in Python).
+as their first parameter (like the ``self`` variable in
+Python).
 
 The effect of ``using A for *;`` is that the functions from
-the library ``A`` are attached to *any* type.
+the library ``A`` are attached to any type.
 
-In both situations, *all* functions in the library are attached,
-even those where the type of the first parameter does not
-match the type of the object. The type is checked at the
+In both situations, all functions, even those where the
+type of the first parameter does not match the type of
+the object, are attached. The type is checked at the
 point the function is called and function overload
 resolution is performed.
 
-The ``using A for B;`` directive is active only within the current
-contract, including within all of its functions, and has no effect
-outside of the contract in which it is used. The directive
-may only be used inside a contract, not inside any of its functions.
-
-By including a library, its data types including library functions are
+The ``using A for B;`` directive is active for the current
+scope, which is limited to a contract for now but will
+be lifted to the global scope later, so that by including
+a module, its data types including library functions are
 available without having to add further code.
 
 Let us rewrite the set example from the
 :ref:`libraries` in this way::
 
-    pragma solidity >=0.4.16 <0.6.0;
+    pragma solidity ^0.4.16;
 
     // This is the same code as before, just without comments
     library Set {
@@ -1566,7 +1435,7 @@ Let us rewrite the set example from the
 
 It is also possible to extend elementary types in that way::
 
-    pragma solidity >=0.4.16 <0.6.0;
+    pragma solidity ^0.4.16;
 
     library Search {
         function indexOf(uint[] storage self, uint value)
